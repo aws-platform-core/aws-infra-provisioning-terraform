@@ -20,7 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -35,7 +35,14 @@ jobs:
         id: changed
         shell: bash
         run: |
-          STACK_DIRS=$(git diff --name-only HEAD~1 HEAD | grep '^stacks/' | cut -d/ -f1-2 | sort -u || true)
+          BEFORE_SHA="${{ github.event.before }}"
+          AFTER_SHA="${{ github.sha }}"
+
+          echo "Before SHA: $BEFORE_SHA"
+          echo "After SHA: $AFTER_SHA"
+
+          STACK_DIRS=$(git diff --name-only "$BEFORE_SHA" "$AFTER_SHA" | grep '^stacks/' | cut -d/ -f1-2 | sort -u || true)
+
           echo "stack_dirs<<EOF" >> $GITHUB_OUTPUT
           echo "$STACK_DIRS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -46,7 +53,6 @@ jobs:
         run: |
           while read -r dir; do
             [ -z "$dir" ] && continue
-
             terraform -chdir="$dir" init -input=false
             terraform -chdir="$dir" apply -auto-approve -input=false
           done <<< "${{ steps.changed.outputs.stack_dirs }}"

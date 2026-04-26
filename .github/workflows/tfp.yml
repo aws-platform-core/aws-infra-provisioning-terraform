@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -34,7 +36,14 @@ jobs:
         id: changed
         shell: bash
         run: |
-          STACK_DIRS=$(git diff --name-only origin/main...HEAD | grep '^stacks/' | cut -d/ -f1-2 | sort -u || true)
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+          echo "Base SHA: $BASE_SHA"
+          echo "Head SHA: $HEAD_SHA"
+
+          STACK_DIRS=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep '^stacks/' | cut -d/ -f1-2 | sort -u || true)
+
           echo "stack_dirs<<EOF" >> $GITHUB_OUTPUT
           echo "$STACK_DIRS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
@@ -55,14 +64,11 @@ jobs:
           rm -f plan-summary.txt
           while read -r dir; do
             [ -z "$dir" ] && continue
-
             echo "## $dir" >> plan-summary.txt
             echo '```' >> plan-summary.txt
-
             terraform -chdir="$dir" init -input=false
             terraform -chdir="$dir" validate
             terraform -chdir="$dir" plan -input=false -no-color >> plan-summary.txt
-
             echo '```' >> plan-summary.txt
             echo "" >> plan-summary.txt
           done <<< "${{ steps.changed.outputs.stack_dirs }}"

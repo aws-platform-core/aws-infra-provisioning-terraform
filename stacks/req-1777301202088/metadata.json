@@ -1,0 +1,12 @@
+{
+  "request_id": "req-1777301202088",
+  "provider": "aws",
+  "template_id": "aws-s3-bucket",
+  "requested_by": "Kiran Kumar Vadivelu",
+  "created_at": "2026-04-27T14:46:42.088Z",
+  "backend": {
+    "bucket": "infra-provisioning-terraform-state",
+    "lock_table": "infra-provisioning-terraform-locks",
+    "region": "us-east-1"
+  }
+}

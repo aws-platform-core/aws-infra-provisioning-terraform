@@ -1,0 +1,84 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: "Request ID to destroy (example: req-1777212312421)"
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  REQUESTS_TABLE: infra_requests
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::684306805506:role/InfraProvisioningGitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Resolve stack directory
+        id: resolve
+        shell: bash
+        run: |
+          REQUEST_ID="${{ inputs.request_id }}"
+          STACK_DIR="stacks/${REQUEST_ID}"
+
+          echo "REQUEST_ID=$REQUEST_ID"
+          echo "STACK_DIR=$STACK_DIR"
+
+          if [ ! -d "$STACK_DIR" ]; then
+            echo "Stack directory does not exist: $STACK_DIR"
+            exit 1
+          fi
+
+          echo "request_id=$REQUEST_ID" >> $GITHUB_OUTPUT
+          echo "stack_dir=$STACK_DIR" >> $GITHUB_OUTPUT
+
+      - name: Mark destroy in progress
+        shell: bash
+        run: |
+          bash scripts/update-request-status.sh \
+            "${{ steps.resolve.outputs.request_id }}" \
+            "DESTROY_IN_PROGRESS"
+
+      - name: Terraform destroy
+        id: destroy
+        shell: bash
+        run: |
+          terraform -chdir="${{ steps.resolve.outputs.stack_dir }}" init -input=false
+          terraform -chdir="${{ steps.resolve.outputs.stack_dir }}" destroy -auto-approve -input=false
+
+      - name: Mark destroyed
+        if: success()
+        shell: bash
+        run: |
+          bash scripts/update-request-status.sh \
+            "${{ steps.resolve.outputs.request_id }}" \
+            "DESTROYED"
+
+      - name: Mark destroy failed
+        if: failure()
+        shell: bash
+        run: |
+          bash scripts/update-request-status.sh \
+            "${{ steps.resolve.outputs.request_id }}" \
+            "DESTROY_FAILED"

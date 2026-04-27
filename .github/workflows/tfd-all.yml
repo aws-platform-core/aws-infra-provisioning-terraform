@@ -1,0 +1,79 @@
+name: Terraform Destroy All
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  REQUESTS_TABLE: infra_requests
+
+jobs:
+  terraform-destroy-all:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::684306805506:role/InfraProvisioningGitHubActionsRole
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Find all stack directories
+        id: stacks
+        shell: bash
+        run: |
+          STACK_DIRS=$(find stacks -mindepth 1 -maxdepth 1 -type d | sort || true)
+
+          echo "stack_dirs<<EOF" >> $GITHUB_OUTPUT
+          echo "$STACK_DIRS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Destroy all stacks
+        if: steps.stacks.outputs.stack_dirs != ''
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          FAILURES=0
+
+          while read -r dir; do
+            [ -z "$dir" ] && continue
+
+            REQUEST_ID="$(basename "$dir")"
+            echo "========================================"
+            echo "Destroying stack for request: $REQUEST_ID"
+            echo "Directory: $dir"
+            echo "========================================"
+
+            bash scripts/update-request-status.sh "$REQUEST_ID" "DESTROY_IN_PROGRESS"
+
+            if terraform -chdir="$dir" init -input=false && terraform -chdir="$dir" destroy -auto-approve -input=false; then
+              bash scripts/update-request-status.sh "$REQUEST_ID" "DESTROYED"
+              echo "Destroyed: $REQUEST_ID"
+            else
+              bash scripts/update-request-status.sh "$REQUEST_ID" "DESTROY_FAILED"
+              echo "Failed to destroy: $REQUEST_ID"
+              FAILURES=$((FAILURES + 1))
+            fi
+          done <<< "${{ steps.stacks.outputs.stack_dirs }}"
+
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "$FAILURES stack(s) failed during destroy."
+            exit 1
+          fi
+
+      - name: No stacks found
+        if: steps.stacks.outputs.stack_dirs == ''
+        run: echo "No stack directories found under stacks/"

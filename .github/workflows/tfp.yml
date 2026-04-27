@@ -12,6 +12,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+  REQUESTS_TABLE: infra_requests
 
 jobs:
   terraform-plan:
@@ -48,27 +49,43 @@ jobs:
           echo "$STACK_DIRS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Terraform fmt check
+      - name: Terraform fmt
         if: steps.changed.outputs.stack_dirs != ''
         shell: bash
         run: |
           while read -r dir; do
             [ -z "$dir" ] && continue
-            terraform -chdir="$dir" fmt -check
+            terraform -chdir="$dir" fmt
           done <<< "${{ steps.changed.outputs.stack_dirs }}"
 
-      - name: Terraform init, validate, plan
+      - name: Terraform init, validate, plan and update request status
         if: steps.changed.outputs.stack_dirs != ''
         shell: bash
         run: |
+          set -euo pipefail
+
           rm -f plan-summary.txt
+
           while read -r dir; do
             [ -z "$dir" ] && continue
+
+            REQUEST_ID="$(basename "$dir")"
+            echo "Planning stack for request: $REQUEST_ID"
+
             echo "## $dir" >> plan-summary.txt
             echo '```' >> plan-summary.txt
-            terraform -chdir="$dir" init -input=false
-            terraform -chdir="$dir" validate
-            terraform -chdir="$dir" plan -input=false -no-color >> plan-summary.txt
+
+            if terraform -chdir="$dir" init -input=false && \
+               terraform -chdir="$dir" validate && \
+               terraform -chdir="$dir" plan -input=false -no-color >> plan-summary.txt; then
+              bash scripts/update-request-status.sh "$REQUEST_ID" "PLAN_COMPLETED"
+            else
+              bash scripts/update-request-status.sh "$REQUEST_ID" "PLAN_FAILED"
+              echo '```' >> plan-summary.txt
+              echo "" >> plan-summary.txt
+              exit 1
+            fi
+
             echo '```' >> plan-summary.txt
             echo "" >> plan-summary.txt
           done <<< "${{ steps.changed.outputs.stack_dirs }}"

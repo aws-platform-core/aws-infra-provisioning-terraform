@@ -11,6 +11,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
+  REQUESTS_TABLE: infra_requests
 
 jobs:
   terraform-apply:
@@ -47,12 +48,24 @@ jobs:
           echo "$STACK_DIRS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Terraform apply
+      - name: Terraform apply and update request status
         if: steps.changed.outputs.stack_dirs != ''
         shell: bash
         run: |
+          set -euo pipefail
+
           while read -r dir; do
             [ -z "$dir" ] && continue
-            terraform -chdir="$dir" init -input=false
-            terraform -chdir="$dir" apply -auto-approve -input=false
+
+            REQUEST_ID="$(basename "$dir")"
+            echo "Applying stack for request: $REQUEST_ID"
+
+            bash scripts/update-request-status.sh "$REQUEST_ID" "APPLY_IN_PROGRESS"
+
+            if terraform -chdir="$dir" init -input=false && terraform -chdir="$dir" apply -auto-approve -input=false; then
+              bash scripts/update-request-status.sh "$REQUEST_ID" "COMPLETED"
+            else
+              bash scripts/update-request-status.sh "$REQUEST_ID" "FAILED"
+              exit 1
+            fi
           done <<< "${{ steps.changed.outputs.stack_dirs }}"

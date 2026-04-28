@@ -24,3 +24,19 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
     }
   }
 }
+
+resource "aws_s3_bucket_website_configuration" "this" {
+  count  = var.website_hosting_enabled ? 1 : 0
+  bucket = aws_s3_bucket.this.id
+
+  index_document {
+    suffix = var.index_document
+  }
+
+  dynamic "error_document" {
+    for_each = var.error_document != "" ? [1] : []
+    content {
+      key = var.error_document
+    }
+  }
+}

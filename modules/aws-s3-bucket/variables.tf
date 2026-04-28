@@ -14,3 +14,8 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "encryption_enabled" {
+  type    = bool
+  default = true
+}

@@ -40,3 +40,32 @@ resource "aws_s3_bucket_website_configuration" "this" {
     }
   }
 }
+
+resource "aws_s3_bucket_public_access_block" "this" {
+  bucket = aws_s3_bucket.this.id
+
+  block_public_acls       = var.website_hosting_enabled ? false : true
+  block_public_policy     = var.website_hosting_enabled ? false : true
+  ignore_public_acls      = var.website_hosting_enabled ? false : true
+  restrict_public_buckets = var.website_hosting_enabled ? false : true
+}
+
+resource "aws_s3_bucket_policy" "website_public_read" {
+  count  = var.website_hosting_enabled ? 1 : 0
+  bucket = aws_s3_bucket.this.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadForWebsite"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.this.arn}/*"
+      }
+    ]
+  })
+
+  depends_on = [aws_s3_bucket_public_access_block.this]
+}
